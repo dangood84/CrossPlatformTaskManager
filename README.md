@@ -36,7 +36,7 @@ sudo apt install build-essential
 
 `make` or `make linux` both work there. glibc hides POSIX APIs under strict `-std=c99`; `src/posix_features.h` asks for them (`sigaction`, `nanosleep`, `gethostname`, `kill`).
 
-Windows: MinGW-w64, MSYS2, or any `gcc` that can see `windows.h`, `tlhelp32.h`, `psapi`, and `advapi32`.
+Windows: [w64devkit](https://github.com/skeeto/w64devkit), MinGW-w64, MSYS2, or any `gcc` that can see `windows.h`, `tlhelp32.h`, `psapi`, and `advapi32`. Plain `make` is enough — w64devkit's `uname` says `Windows` (not `MINGW*`), and the Makefile keys off that plus `OS=Windows_NT`.
 
 ## Run
 
@@ -63,7 +63,7 @@ Or with Make on other OSes:
 
 ```bash
 make linux      # Linux binary (run this on Linux)
-make windows    # TaskManager.exe (run this on Windows / MinGW)
+make windows    # TaskManager.exe (explicit Windows host; plain `make` also works)
 make test       # headless two-sample checks (no raw terminal)
 make once       # one framed snapshot, then exit
 make clean      # remove build/

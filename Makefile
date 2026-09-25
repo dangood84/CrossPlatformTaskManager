@@ -2,7 +2,7 @@
 #
 # macOS:   make
 # Linux:   make            (or: make linux)
-# Windows: from MinGW/MSVC: make windows
+# Windows: make            (w64devkit / MinGW / MSYS)  or: make windows
 #
 # Same idea as the Resource Monitor: one tree, compile-time host.
 
@@ -11,6 +11,7 @@ SRC      := src
 BUILD    := build
 CFLAGS   ?= -std=c99 -Wall -Wextra -O2 -Isrc
 LDFLAGS  ?=
+BIN      := $(BUILD)/task-manager
 
 UNAME_S  := $(shell uname -s 2>/dev/null || echo Unknown)
 
@@ -24,35 +25,54 @@ ifeq ($(UNAME_S),Linux)
   CFLAGS   += -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L
   LDLIBS   := -lrt
 endif
-ifneq (,$(findstring MINGW,$(UNAME_S)))
-  COLLECT  := $(SRC)/collect_win.c
-  LDLIBS   := -lpsapi -ladvapi32
-endif
-ifneq (,$(findstring MSYS,$(UNAME_S)))
-  COLLECT  := $(SRC)/collect_win.c
-  LDLIBS   := -lpsapi -ladvapi32
+
+# WORKING: w64devkit's uname prints "Windows", not MINGW64_NT-*.
+# cmd.exe / PowerShell always set OS=Windows_NT. The old MINGW/MSYS
+# substring miss meant `make` linked no collector and ld died on
+# collect_init. Detect all of those, then still allow `make windows`.
+ifeq ($(COLLECT),)
+  ifeq ($(OS),Windows_NT)
+    ON_WINDOWS := 1
+  endif
+  ifneq (,$(findstring Windows,$(UNAME_S)))
+    ON_WINDOWS := 1
+  endif
+  ifneq (,$(findstring MINGW,$(UNAME_S)))
+    ON_WINDOWS := 1
+  endif
+  ifneq (,$(findstring MSYS,$(UNAME_S)))
+    ON_WINDOWS := 1
+  endif
+  ifneq (,$(findstring CYGWIN,$(UNAME_S)))
+    ON_WINDOWS := 1
+  endif
+  ifdef ON_WINDOWS
+    COLLECT  := $(SRC)/collect_win.c
+    LDLIBS   := -lpsapi -ladvapi32
+    BIN      := $(BUILD)/task-manager.exe
+  endif
 endif
 
 COMMON   := $(SRC)/util.c $(SRC)/term.c $(SRC)/render.c $(COLLECT)
 
 .PHONY: all run linux windows test once clean
 
-all: $(BUILD)/task-manager
+all: $(BIN)
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/task-manager: $(BUILD) $(SRC)/*.c $(SRC)/*.h
+$(BIN): $(BUILD) $(SRC)/*.c $(SRC)/*.h
 	$(CC) $(CFLAGS) -o $@ $(SRC)/taskman.c $(COMMON) $(LDFLAGS) $(LDLIBS)
 
 $(BUILD)/taskmantest: $(BUILD) $(SRC)/*.c $(SRC)/*.h
 	$(CC) $(CFLAGS) -o $@ $(SRC)/taskmantest.c $(SRC)/util.c $(COLLECT) $(LDFLAGS) $(LDLIBS)
 
-run: $(BUILD)/task-manager
-	$(BUILD)/task-manager
+run: $(BIN)
+	$(BIN)
 
-once: $(BUILD)/task-manager
-	$(BUILD)/task-manager --once
+once: $(BIN)
+	$(BIN) --once
 
 test: $(BUILD)/taskmantest
 	$(BUILD)/taskmantest
