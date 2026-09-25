@@ -179,7 +179,7 @@ Pause after step 16: further iterations skip `collect_snapshot`. The percentages
 
 There is no key-to-enum table like the calculator. A handful of ASCII bytes plus `TERM_KEY_*` from CSI / Win32 specials matter. UTF-8 paste into the filter is ignored one continuation-byte at a time (only 32..126 are appended).
 
-Resize: no `SIGWINCH` handler. The next frame calls `term_size` again. A tester who wants a 100-column layout should resize, wait one interval, and look at `opt.cols`.
+Resize: no `SIGWINCH` handler. The next frame calls `term_size` again. A tester who wants a 100-column layout should resize, wait one interval, and look at `opt.cols`. Under 100 columns `paint` uses the compact identity line and a shorter memory annotation so the CPU/memory bars stay on the first rows of a windowed Mac Terminal / lxterminal / cmd window. Hlines are `cols - 1` glyphs: a full-width rule plus newline wraps on macOS Terminal and the header scrolls away.
 
 ---
 
@@ -187,12 +187,13 @@ Resize: no `SIGWINCH` handler. The next frame calls `term_size` again. A tester 
 
 `main` is identical. Differences that matter when tracing:
 
-1. `collect_win.c` — Toolhelp + `GetProcessTimes` / `GetProcessMemoryInfo` / `QueryFullProcessImageNameA` / `LookupAccountSidA` / `GetSystemTimes` / `GlobalMemoryStatusEx`.
+1. `collect_win.c` — Toolhelp (`PROCESSENTRY32` / `Process32First`, after `#undef UNICODE`) + `GetProcessTimes` / `GetProcessMemoryInfo` / `QueryFullProcessImageNameA` / `LookupAccountSidA` / `GetSystemTimes` / `GlobalMemoryStatusEx`. w64devkit has no `PROCESSENTRY32A`.
 2. Processes that refuse `OpenProcess` have `readable = 0`; the row prints `n/a`.
 3. `collect_signal` is `TerminateProcess` for both 15 and 9. pid 0 is refused.
 4. `term_poll_key` is `_kbhit` + `Sleep(20)` in a `GetTickCount` window. Arrow keys arrive as `0`/`224` + a follow-up and become `TERM_KEY_UP` etc.
-5. Names use `util_copy_trunc` (capped `memcpy`), not `snprintf("%s")`, so MinGW `-Wformat-truncation` stays quiet.
+5. Names use `util_copy_trunc` (capped `memcpy`), not `snprintf("%s")`, so MinGW `-Wformat-truncation` stays quiet. Memory-label `snprintf` uses 24-byte byte-count buffers for the same reason.
 6. Live paint is one `fwrite`. Do not expect a blank flash between ticks.
+7. `make` on w64devkit keys off `uname` = `Windows` or `OS=Windows_NT` and writes `build/task-manager.exe`. `make windows` writes `build/TaskManager.exe`. Both link `collect_win.c`.
 
 Close the console window: the process dies; `atexit` still runs `term_restore` if `term_init` ran.
 
@@ -205,7 +206,7 @@ Close the console window: the process dies; `atexit` still runs `term_restore` i
 3. Digit directories under `/proc`. `stat` is parsed by first `(` / last `)`. `status` supplies `Uid` and `VmRSS`. `cmdline` NULs become spaces.
 4. Kernel threads (empty cmdline) keep the `stat` comm as the command.
 
-`make linux` on a Mac will compile `collect_linux.c` and then fail at run time if `/proc` is missing. Run that target **on Linux**.
+`make` on the Pi (or `make linux`) links `collect_linux.c`. `make linux` on a Mac will compile that file and then fail at run time if `/proc` is missing. Run Linux targets **on Linux**.
 
 `posix_features.h` (first include) plus `-D_POSIX_C_SOURCE=200809L` is why `sigaction` / `nanosleep` / `gethostname` / `kill` exist under `-std=c99`. Without it, the Pi compile stops with “storage size of `sa` isn’t known”.
 

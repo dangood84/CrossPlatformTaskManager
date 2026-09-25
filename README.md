@@ -8,7 +8,7 @@ C is a better fit here than Pascal or Java for the same reason it was a better f
 
 The task manager:
 
-- draws a full-screen table that refreshes once a second (configurable)
+- draws a live table that refreshes once a second (configurable) — windowed or fullscreen
 - colours CPU numbers green / yellow / red at 60% and 85%
 - needs **two samples** before CPU percentages mean anything (the first tick only stores counters)
 - treats a pipe or `--once` as a single snapshot, not a live loop
@@ -47,7 +47,7 @@ make
 make run
 ```
 
-That compiles to `build/task-manager` and opens the live table. `q` quits; space pauses.
+That compiles to `build/task-manager` (or `build/task-manager.exe` on Windows) and opens the live table. `q` quits; space pauses. `make windows` is the same host with the filename `TaskManager.exe`.
 
 On **Linux / Raspberry Pi OS**, run the binary from a terminal. `open` is a macOS command; on the Pi it (or a file-manager double-click) starts the process with no TTY, so the live UI has nowhere to draw.
 
@@ -103,7 +103,9 @@ Your own process is tinted cyan so you can see the dashboard itself in the list.
 
 Piped to a file or to `less`, the process behaves like `--once` even without the flag. A live loop in a non-TTY is the wrong tool.
 
-On **Windows cmd**, live frames are composed in memory and written once. Classic cmd is unbuffered, so the old “erase, then `printf` each line” path flashed every second. Windows Terminal is fine either way; `TaskManager.exe` should now sit still in both.
+On **Windows cmd**, live frames are composed in memory and written once. Classic cmd is unbuffered, so the old “erase, then `printf` each line” path flashed every second. Windows Terminal is fine either way; `task-manager.exe` / `TaskManager.exe` should now sit still in both.
+
+A **windowed** terminal (Mac Terminal, lxterminal on the Pi, a small cmd window) used to wrap the identity line and the memory annotation, which scrolled the CPU/memory bars off the top. Under 100 columns the header is a shorter line and the bars shrink to fit; fullscreen still gets the long form.
 
 ## Where it appears
 
@@ -111,7 +113,7 @@ On **Windows cmd**, live frames are composed in memory and written once. Classic
 |----|-----------|--------------|
 | **macOS** | `collect_darwin.c` | `sysctl(KERN_PROC_ALL)` + `proc_pidinfo`, Mach CPU ticks, Activity Monitor-style memory |
 | **Linux** | `collect_linux.c` | `/proc/[pid]/stat` + `status` + `cmdline`, `/proc/stat`, `MemAvailable` |
-| **Windows** | `collect_win.c` | Toolhelp snapshot, `GetProcessTimes`, `GetProcessMemoryInfo`, `GetSystemTimes` |
+| **Windows** | `collect_win.c` | Toolhelp (`PROCESSENTRY32`, not the `A` alias — w64devkit has none), `GetProcessTimes`, `GetProcessMemoryInfo`, `GetSystemTimes` |
 
 Protected Windows processes that refuse `OpenProcess` still appear (name + thread count from Toolhelp) with CPU/RSS as `n/a`.
 

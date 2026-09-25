@@ -148,6 +148,7 @@ That is why `taskmantest.c` can link `util.c` + one collector and never mention 
 - `--ascii` swaps `█░▶` for `#.>`
 - Live frames are a `FrameBuf`: home, erase-to-end-of-line on each row, **one** `fwrite`. cmd.exe (and the MinGW CRT) leave the console unbuffered, so a leading `\x1b[J` plus line-by-line `printf` used to flash every second.
 - Filter, scroll, and the selected pid are *options*, not snapshot fields. The collector does not know you typed `/chrome`.
+- Under 100 columns the identity line and footer shrink, and both bars are sized from the memory annotation so they cannot wrap. A line of exactly `cols` glyphs plus a newline wraps on macOS Terminal (the cursor is already on the next row); hlines stay one column short.
 
 It does not know about Mach or `/proc`.
 
@@ -157,6 +158,11 @@ It does not know about Mach or `/proc`.
 - Windows: `ENABLE_VIRTUAL_TERMINAL_PROCESSING` + UTF-8 output code page
 - `term_poll_key` is a `poll` / `_kbhit` with a timeout — that timeout **is** the refresh interval
 - Arrow / PgUp / PgDn / Home / End come back as `TERM_KEY_*` (CSI on Unix, 0/224 pairs on Windows). A lone Esc waits 30 ms and then returns `TERM_KEY_ESC` so filter-cancel works.
+- `term_size` reports the real window (floor 40×10, not 60×16). Pretending a windowed Mac terminal was 60 columns made us paint lines wider than the glass.
+
+### `Makefile` — compile-time host
+
+`uname -s` is `Darwin` / `Linux` as usual. On Windows, w64devkit prints `Windows` (not `MINGW64_NT-*`) and cmd sets `OS=Windows_NT`. Either of those selects `collect_win.c` and `-lpsapi -ladvapi32`. A plain `make` that misses both used to link no collector; `ld` then died on `collect_init`. `make windows` always links the Windows host.
 
 ### What is *not* a file
 
@@ -219,6 +225,8 @@ If a tester compares the header bar to Activity Monitor / Task Manager and they 
 
 Windows processes that refuse `OpenProcess` stay in the table with `readable = 0`. The renderer prints `n/a` for CPU and memory. Toolhelp still gave us a name and a thread count.
 
+w64devkit's `tlhelp32.h` has `PROCESSENTRY32` / `Process32First` / `Process32Next` and no `PROCESSENTRY32A` alias. `collect_win.c` `#undef`s `UNICODE` before the headers so `szExeFile` stays `char *` and those unsuffixed names are the ANSI ones.
+
 We store at most 768 rows. `process_count` is the kernel's figure; `truncated` is set if we had to stop. A busy Mac is typically 400–600; a Pi is far under the cap.
 
 ### Signalling
@@ -256,7 +264,7 @@ Two kinds of state matter:
 | `term_poll_key` | nothing | no |
 | space / `c` / `/` / arrows | flags in `main` | no (next paint shows it) |
 
-A tester debugging "CPU is always 0" should breakpoint the second `collect_snapshot` and watch `g_primed`. A tester debugging "the window is blank" should breakpoint `render_dashboard` / `fb_flush`. A tester debugging "cmd flashes every second" should confirm the live path is `FrameBuf` + one `fwrite`. A tester debugging "q does nothing" should breakpoint `term_poll_key` and check that `ICANON` is off. A tester debugging "my shell is broken after Ctrl+C" should breakpoint `term_restore`. A tester debugging "Linux double-click does nothing" should breakpoint `linux_spawn_in_terminal`. A tester debugging "arrows do nothing" should breakpoint `decode_csi` / `decode_win_special`. A tester debugging "I killed the wrong pid" should breakpoint `collect_signal` and read `opt.selected_pid`.
+A tester debugging "CPU is always 0" should breakpoint the second `collect_snapshot` and watch `g_primed`. A tester debugging "the window is blank" should breakpoint `render_dashboard` / `fb_flush`. A tester debugging "cmd flashes every second" should confirm the live path is `FrameBuf` + one `fwrite`. A tester debugging "the CPU/memory header vanishes in a window" should watch `opt.cols` and `hline` / `main_bar_width` — a wrap adds rows and the top scrolls off. A tester debugging "q does nothing" should breakpoint `term_poll_key` and check that `ICANON` is off. A tester debugging "my shell is broken after Ctrl+C" should breakpoint `term_restore`. A tester debugging "Linux double-click does nothing" should breakpoint `linux_spawn_in_terminal`. A tester debugging "arrows do nothing" should breakpoint `decode_csi` / `decode_win_special`. A tester debugging "I killed the wrong pid" should breakpoint `collect_signal` and read `opt.selected_pid`. A tester debugging "ld: undefined collect_init on Windows" should check `UNAME_S` / `OS` in the Makefile, not `taskman.c`.
 
 ### Why not `sleep(1)` then `scanf`?
 
@@ -273,10 +281,10 @@ src/
   collect.h           # host API
   collect_darwin.c    # Mach / libproc
   collect_linux.c     # /proc
-  collect_win.c       # Toolhelp / GetProcessTimes
+  collect_win.c       # Toolhelp (PROCESSENTRY32) / GetProcessTimes
   posix_features.h    # first include on Linux (glibc C99)
-  render.c            # bars, table, FrameBuf, filter match
-  term.c              # alt screen, raw, poll, arrows
+  render.c            # bars, table, FrameBuf, filter match, wrap-safe header
+  term.c              # alt screen, raw, poll, arrows, real window size
   util.c              # sleep, KiB labels, NO_COLOR, icase filter
   taskmantest.c       # make test
 ```
