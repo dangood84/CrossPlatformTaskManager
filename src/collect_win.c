@@ -1,6 +1,12 @@
 #include "collect.h"
 #include "util.h"
 
+/* WORKING: w64devkit's tlhelp32.h typedefs PROCESSENTRY32 (ANSI) but
+ * has no PROCESSENTRY32A alias. If UNICODE is on, the unsuffixed
+ * name is wide and szExeFile is WCHAR. Force the A world so one
+ * struct and Process32First/Next match util_copy_trunc. */
+#undef UNICODE
+#undef _UNICODE
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <psapi.h>
@@ -212,7 +218,7 @@ static void fill_user(HANDLE h, char *dst, size_t n)
 static void fill_procs(TaskSnapshot *out, double dt)
 {
     HANDLE snap;
-    PROCESSENTRY32A pe;
+    PROCESSENTRY32 pe;
     int stored = 0;
     uint32_t seen = 0;
     PrevProc next[SNAP_MAX_PROCS];
@@ -225,7 +231,7 @@ static void fill_procs(TaskSnapshot *out, double dt)
 
     memset(&pe, 0, sizeof(pe));
     pe.dwSize = sizeof(pe);
-    if (!Process32FirstA(snap, &pe)) {
+    if (!Process32First(snap, &pe)) {
         CloseHandle(snap);
         return;
     }
@@ -313,7 +319,7 @@ static void fill_procs(TaskSnapshot *out, double dt)
             next_n++;
         }
         stored++;
-    } while (Process32NextA(snap, &pe));
+    } while (Process32Next(snap, &pe));
 
     CloseHandle(snap);
     out->process_count = seen;

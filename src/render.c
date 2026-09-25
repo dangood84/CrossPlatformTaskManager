@@ -325,7 +325,7 @@ static void paint_proc(FrameBuf *fb, const RenderOptions *opt,
 
 static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *opt)
 {
-    char b1[64], b2[64], when[64], mem_right[64];
+    char b1[24], b2[24], when[64], mem_right[80];
     time_t now;
     struct tm *tm;
     int cols = opt->cols;
