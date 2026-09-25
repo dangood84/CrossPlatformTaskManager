@@ -152,22 +152,34 @@ static double used_pct(uint64_t used, uint64_t total)
     return util_clamp_pct(100.0 * (double)used / (double)total);
 }
 
+/* Stay one column short of the window. A line of exactly `cols` glyphs
+ * plus a newline wraps on macOS Terminal (and some others): the cursor
+ * is already on the next row, then \n advances again. Those extra
+ * blanks push the CPU/memory header off a windowed (non-fullscreen)
+ * screen. */
+static int line_cols(int cols)
+{
+    return cols > 1 ? cols - 1 : cols;
+}
+
 static void hline(FrameBuf *fb, const RenderOptions *opt, int cols)
 {
     int i;
+    int w = line_cols(cols);
     const char *ch = opt->ascii ? "-" : "\xE2\x94\x80"; /* ─ */
     fb_add(fb, s(opt, C_DIM));
-    for (i = 0; i < cols; i++) {
+    for (i = 0; i < w; i++) {
         fb_add(fb, ch);
     }
     fb_add(fb, s(opt, C_RESET));
     fb_nl(fb);
 }
 
-static int main_bar_width(int cols)
+static int main_bar_width(int cols, int right_cols)
 {
-    int w = cols - 36;
-    return util_clamp_int(w, 16, 48);
+    /* "  Memory  " (10) + "[]" (2) + annotation, and stay off the wrap. */
+    int w = line_cols(cols) - 12 - right_cols;
+    return util_clamp_int(w, 8, 48);
 }
 
 int render_proc_matches(const ProcSample *p, const char *filter)
@@ -220,8 +232,8 @@ int render_filtered_pos(const TaskSnapshot *snap, const char *filter,
 
 int render_page_rows(int rows)
 {
-    /* title, host, hline, cpu, mem, hline, colnames, table..., hline, footer */
-    return util_clamp_int(rows - 10, 3, 60);
+    /* title, host, hline, cpu, mem, hline, colnames, table..., hline, 2 footer */
+    return util_clamp_int(rows - 10, 1, 80);
 }
 
 static const char *sort_label(int key)
@@ -313,11 +325,12 @@ static void paint_proc(FrameBuf *fb, const RenderOptions *opt,
 
 static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *opt)
 {
-    char b1[64], b2[64], when[64];
+    char b1[64], b2[64], when[64], mem_right[64];
     time_t now;
     struct tm *tm;
     int cols = opt->cols;
-    int bw = main_bar_width(cols);
+    int narrow = cols < 100;
+    int bw;
     int page = render_page_rows(opt->rows);
     int view_n;
     int name_w;
@@ -327,15 +340,15 @@ static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *o
     now = time(NULL);
     tm = localtime(&now);
     if (tm != NULL) {
-        strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", tm);
+        strftime(when, sizeof(when), narrow ? "%H:%M:%S" : "%Y-%m-%d %H:%M:%S", tm);
     } else {
         snprintf(when, sizeof(when), "--");
     }
 
     view_n = render_filtered_count(snap, opt->filter);
 
-    /* PID(7)+user(12)+cpu(6)+mem(6)+rss(9)+thr(4)+st(2)+pads ≈ 56 */
-    name_w = util_clamp_int(cols - 56, 8, SNAP_CMD_LEN - 1);
+    /* PID+user+cpu+mem+rss+thr+st+pads ≈ 57. Stay off the wrap column. */
+    name_w = util_clamp_int(line_cols(cols) - 57, 4, SNAP_CMD_LEN - 1);
 
     fb_add(fb, s(opt, C_BOLD));
     fb_add(fb, "  Cross-Platform Task Manager");
@@ -347,15 +360,39 @@ static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *o
     }
     fb_nl(fb);
 
-    fb_printf(fb, "  %s%s%s  ·  %s %s  ·  %s  ·  %d cores  ·  %u processes",
-              s(opt, C_CYAN),
-              snap->hostname[0] ? snap->hostname : "unknown",
-              s(opt, C_RESET),
-              snap->host_label[0] ? snap->host_label : snap->os_name,
-              snap->os_release,
-              snap->arch,
-              snap->cpu_count,
-              (unsigned)snap->process_count);
+    /* WORKING: the full identity line is ~90 columns on a MacBook
+     * hostname. In a windowed terminal it wrapped, and the CPU/memory
+     * bars that follow it scrolled off the top. Drop release/arch
+     * under 100 columns so the header stays one row. */
+    if (narrow) {
+        char host[SNAP_HOST_LEN];
+        int host_max = line_cols(cols) - 36;
+        util_copy_trunc(host, sizeof(host),
+                        snap->hostname[0] ? snap->hostname : "unknown");
+        if (host_max < 8) {
+            host_max = 8;
+        }
+        if ((int)strlen(host) > host_max) {
+            host[host_max] = '\0';
+        }
+        fb_printf(fb, "  %s%s%s  ·  %s  ·  %d cores  ·  %u procs",
+                  s(opt, C_CYAN),
+                  host,
+                  s(opt, C_RESET),
+                  snap->host_label[0] ? snap->host_label : snap->os_name,
+                  snap->cpu_count,
+                  (unsigned)snap->process_count);
+    } else {
+        fb_printf(fb, "  %s%s%s  ·  %s %s  ·  %s  ·  %d cores  ·  %u processes",
+                  s(opt, C_CYAN),
+                  snap->hostname[0] ? snap->hostname : "unknown",
+                  s(opt, C_RESET),
+                  snap->host_label[0] ? snap->host_label : snap->os_name,
+                  snap->os_release,
+                  snap->arch,
+                  snap->cpu_count,
+                  (unsigned)snap->process_count);
+    }
     if (snap->truncated) {
         fb_printf(fb, "  %s(showing %d)%s",
                   s(opt, C_DIM), snap->proc_n, s(opt, C_RESET));
@@ -363,10 +400,22 @@ static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *o
     fb_nl(fb);
     hline(fb, opt, cols);
 
+    mpct = used_pct(snap->mem_used, snap->mem_total);
+    util_format_bytes(snap->mem_used, b1, sizeof(b1));
+    util_format_bytes(snap->mem_total, b2, sizeof(b2));
+    if (narrow) {
+        snprintf(mem_right, sizeof(mem_right), "  %s/%s %4.0f%%", b1, b2, mpct);
+    } else {
+        snprintf(mem_right, sizeof(mem_right), "  %s / %s  (%4.1f%%)", b1, b2, mpct);
+    }
+    /* Size both bars from the longer annotation (memory) so they align
+     * and the memory line cannot wrap. */
+    bw = main_bar_width(cols, (int)strlen(mem_right));
+
     fb_add(fb, "  CPU     ");
     if (!snap->primed || snap->cpu_total < 0.0) {
         fb_add(fb, s(opt, C_DIM));
-        fb_add(fb, "(warming up — rates need two samples)");
+        fb_add(fb, "(warming up)");
         fb_add(fb, s(opt, C_RESET));
         fb_nl(fb);
     } else {
@@ -375,12 +424,9 @@ static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *o
         fb_nl(fb);
     }
 
-    mpct = used_pct(snap->mem_used, snap->mem_total);
-    util_format_bytes(snap->mem_used, b1, sizeof(b1));
-    util_format_bytes(snap->mem_total, b2, sizeof(b2));
     fb_add(fb, "  Memory  ");
     bar(fb, opt, mpct, bw);
-    fb_printf(fb, "  %s / %s  (%4.1f%%)", b1, b2, mpct);
+    fb_add(fb, mem_right);
     fb_nl(fb);
     hline(fb, opt, cols);
 
@@ -441,6 +487,16 @@ static void paint(FrameBuf *fb, const TaskSnapshot *snap, const RenderOptions *o
         fb_add(fb, s(opt, C_YELL));
         fb_printf(fb, "  %s", opt->banner);
         fb_add(fb, s(opt, C_RESET));
+        fb_nl(fb);
+    } else if (narrow) {
+        fb_printf(fb,
+                  "  %sq%s quit  %sspace%s pause  %s/%s filter  %sk%s kill"
+                  "   %.1fs  %s",
+                  s(opt, C_BOLD), s(opt, C_RESET),
+                  s(opt, C_BOLD), s(opt, C_RESET),
+                  s(opt, C_BOLD), s(opt, C_RESET),
+                  s(opt, C_BOLD), s(opt, C_RESET),
+                  opt->interval_sec, when);
         fb_nl(fb);
     } else {
         fb_printf(fb,

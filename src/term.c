@@ -271,11 +271,16 @@ void term_size(int *cols, int *rows)
         r = ws.ws_row;
     }
 #endif
+    /* WORKING: do not pretend a windowed Mac terminal is 60×16 when it
+     * is 80×24 (or 50×18). The old floor made us paint lines wider
+     * than the glass; they wrapped and the CPU/memory header scrolled
+     * off the top. Honour the real size, with only a tiny floor so a
+     * 1×1 ioctl glitch does not collapse the layout. */
     if (cols) {
-        *cols = util_clamp_int(c, 60, 240);
+        *cols = util_clamp_int(c, 40, 240);
     }
     if (rows) {
-        *rows = util_clamp_int(r, 16, 80);
+        *rows = util_clamp_int(r, 10, 120);
     }
 }
 

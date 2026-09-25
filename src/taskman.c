@@ -429,6 +429,12 @@ int main(int argc, char **argv)
     opt.interval_sec = interval;
     opt.cols = 80;
     opt.rows = 24;
+    if (term_is_tty()) {
+        int cols = 80, rows = 24;
+        term_size(&cols, &rows);
+        opt.cols = cols;
+        opt.rows = rows;
+    }
     opt.sort_key = g_sort_key;
     opt.sort_rev = g_sort_rev;
     opt.selected_pid = -1;
